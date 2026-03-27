@@ -43,10 +43,17 @@ function DealFlowApp() {
   const [unread, setUnread] = useState(0)
   const [folders, setFolders] = useState([])
   const [selectedFolder, setSelectedFolder] = useState('inbox')
+  const [sinceDate, setSinceDate] = useState(() => {
+    if (typeof window === 'undefined') return ''
+    return localStorage.getItem('df-since') || ''
+  })
   const [loading, setLoading] = useState(false)
   const [fetchErr, setFetchErr] = useState(null)
   const [showAddDeal, setShowAddDeal] = useState(false)
-  const [editDeal, setEditDeal] = useState(null)  // deal being edited
+  const [editDeal, setEditDeal] = useState(null)
+  const [detailEmail, setDetailEmail] = useState(null)   // email open in detail modal
+  const [detailBody, setDetailBody] = useState(null)     // full body loaded async
+  const [detailLoading, setDetailLoading] = useState(false)
 
   const svgRef = useRef(null)
   const worldRef = useRef(null)
@@ -98,7 +105,9 @@ function DealFlowApp() {
     if (!session?.accessToken) return
     setLoading(true); setFetchErr(null)
     try {
-      const res = await fetch(`/api/emails?folderId=${encodeURIComponent(selectedFolder)}`)
+      const params = new URLSearchParams({ folderId: selectedFolder })
+      if (sinceDate) params.set('since', sinceDate)
+      const res = await fetch(`/api/emails?${params}`)
       const data = await res.json()
       if (data.error) { setFetchErr(data.error); return }
       setEmails(data.emails)
@@ -108,7 +117,7 @@ function DealFlowApp() {
     } finally {
       setLoading(false)
     }
-  }, [session, selectedFolder])
+  }, [session, selectedFolder, sinceDate])
 
   useEffect(() => {
     if (!session?.accessToken) return
@@ -343,10 +352,29 @@ ${recent.map(em => `<div style="font-size:7.5px;color:#4a5468;padding:2px 0;bord
     if (activeDeal === id) setActiveDeal(null)
   }
 
-  // ── Select email ─────────────────────────────────────────────────────────
+  // ── Persist sinceDate ────────────────────────────────────────────────────
+  useEffect(() => {
+    localStorage.setItem('df-since', sinceDate)
+  }, [sinceDate])
+
+  // ── Select email (highlights tree) ───────────────────────────────────────
   function selectEmail(em) {
     setSelEmail(em)
     if (em._matches?.length) setActiveDeal(em._matches[0].dealId)
+  }
+
+  // ── Open full detail modal ────────────────────────────────────────────────
+  async function openDetail(em) {
+    selectEmail(em)
+    setDetailEmail(em)
+    setDetailBody(null)
+    setDetailLoading(true)
+    try {
+      const res = await fetch(`/api/email/${em.id}`)
+      const data = await res.json()
+      if (data.email) setDetailBody(data.email.body?.content || data.email.bodyPreview)
+    } catch { /* show bodyPreview as fallback */ }
+    finally { setDetailLoading(false) }
   }
 
   // ══════════════════════════════════════════════════════════════════
@@ -395,7 +423,7 @@ ${recent.map(em => `<div style="font-size:7.5px;color:#4a5468;padding:2px 0;bord
             Outlook Inbox
             <span style={{ ...S.badge, background: unread > 0 ? '#4fc3f7' : '#1a1e28', color: unread > 0 ? '#0a0c10' : '#4a5468' }}>{unread}</span>
           </div>
-          <div style={{ padding: '6px 12px', borderBottom: '1px solid #1c2030', flexShrink: 0 }}>
+          <div style={{ padding: '6px 12px', borderBottom: '1px solid #1c2030', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 5 }}>
             <select
               value={selectedFolder}
               onChange={e => setSelectedFolder(e.target.value)}
@@ -407,6 +435,18 @@ ${recent.map(em => `<div style="font-size:7.5px;color:#4a5468;padding:2px 0;bord
                 <option key={f.id} value={f.id}>{f.displayName} ({f.totalItemCount})</option>
               ))}
             </select>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 8, color: '#4a5468', whiteSpace: 'nowrap' }}>From date</span>
+              <input
+                type="date"
+                value={sinceDate}
+                onChange={e => setSinceDate(e.target.value)}
+                style={{ flex: 1, background: '#141720', border: '1px solid #242838', color: '#7a8494', fontFamily: "'IBM Plex Mono',monospace", fontSize: 9.5, padding: '3px 7px', borderRadius: 4, outline: 'none', colorScheme: 'dark' }}
+              />
+              {sinceDate && (
+                <button onClick={() => setSinceDate('')} style={{ ...S.btn, fontSize: 9, padding: '2px 7px', color: '#4a5468' }}>✕</button>
+              )}
+            </div>
           </div>
           <div style={S.emailList}>
             {emails.length === 0 && (
@@ -420,7 +460,7 @@ ${recent.map(em => `<div style="font-size:7.5px;color:#4a5468;padding:2px 0;bord
               return (
                 <div
                   key={em.id}
-                  onClick={() => selectEmail(em)}
+                  onClick={() => openDetail(em)}
                   style={{
                     ...S.emailItem,
                     background: isSel ? '#141720' : 'transparent',
@@ -523,6 +563,72 @@ ${recent.map(em => `<div style="font-size:7.5px;color:#4a5468;padding:2px 0;bord
 
       {/* ── Tooltip ── */}
       <div ref={tipRef} style={S.tooltip} />
+
+      {/* ── Email Detail Modal ── */}
+      {detailEmail && (
+        <div style={S.modalOverlay} onClick={e => e.target === e.currentTarget && setDetailEmail(null)}>
+          <div style={{ ...S.modal, width: 580, maxHeight: '82vh', display: 'flex', flexDirection: 'column', gap: 0 }}>
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: 'Syne,sans-serif', fontSize: 15, fontWeight: 800, color: '#dde1ea', marginBottom: 5, lineHeight: 1.3 }}>
+                  {detailEmail.subject || '(no subject)'}
+                </div>
+                <div style={{ fontSize: 9, color: '#4a5468' }}>
+                  <span style={{ color: '#7a8494' }}>{detailEmail.from?.emailAddress?.name}</span>
+                  {' '}·{' '}
+                  <span>{detailEmail.from?.emailAddress?.address}</span>
+                  {' '}·{' '}
+                  <span>{new Date(detailEmail.receivedDateTime).toLocaleString()}</span>
+                </div>
+              </div>
+              <button onClick={() => setDetailEmail(null)} style={{ ...S.btn, padding: '2px 9px', marginLeft: 12, flexShrink: 0 }}>✕</button>
+            </div>
+
+            {/* Classification path */}
+            {detailEmail._matches?.length > 0 ? (
+              <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <div style={{ fontSize: 8, color: '#4a5468', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 2 }}>Filed under</div>
+                {detailEmail._matches.map(m => (
+                  <div
+                    key={m.dealId + m.branch}
+                    onClick={() => { setActiveDeal(m.dealId); setDetailEmail(null) }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '6px 10px', background: m.dealColor + '14', border: `1px solid ${m.dealColor}33`, borderRadius: 6, cursor: 'pointer' }}
+                  >
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: m.dealColor, flexShrink: 0, display: 'inline-block' }} />
+                    <span style={{ fontFamily: 'Syne,sans-serif', fontSize: 10, fontWeight: 700, color: m.dealColor }}>{m.dealName}</span>
+                    <span style={{ color: '#2a3040', fontSize: 10 }}>›</span>
+                    <span style={{ fontSize: 9.5, color: '#7a8494' }}>{m.branch}</span>
+                    <span style={{ marginLeft: 'auto', fontSize: 8, color: '#4a5468' }}>View in tree →</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ marginBottom: 12, padding: '7px 10px', background: '#1a1e28', borderRadius: 6, fontSize: 8.5, color: '#4a5468' }}>
+                Not matched to any deal — add keywords to your deals to classify this email.
+              </div>
+            )}
+
+            {/* Body */}
+            <div style={{ borderTop: '1px solid #1c2030', paddingTop: 12, flex: 1, overflowY: 'auto' }}>
+              {detailLoading ? (
+                <div style={{ fontSize: 9, color: '#4a5468' }}>Loading…</div>
+              ) : (
+                <div
+                  style={{ fontSize: 9.5, color: '#7a8494', lineHeight: 1.75, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
+                  dangerouslySetInnerHTML={
+                    detailBody?.includes('<')
+                      ? { __html: detailBody }
+                      : undefined
+                  }
+                >
+                  {!detailBody?.includes('<') ? (detailBody || detailEmail.bodyPreview) : undefined}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Add/Edit Deal Modal ── */}
       {showAddDeal && (
