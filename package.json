@@ -12,6 +12,6 @@
     "react": "^18",
     "react-dom": "^18",
     "next-auth": "^4.24.7",
-    "@anthropic-ai/sdk": "^0.30.0"
+    "groq-sdk": "^0.7.0"
   }
 }
