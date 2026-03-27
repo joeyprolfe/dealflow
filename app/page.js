@@ -51,9 +51,12 @@ function DealFlowApp() {
   const [fetchErr, setFetchErr] = useState(null)
   const [showAddDeal, setShowAddDeal] = useState(false)
   const [editDeal, setEditDeal] = useState(null)
-  const [detailEmail, setDetailEmail] = useState(null)   // email open in detail modal
-  const [detailBody, setDetailBody] = useState(null)     // full body loaded async
-  const [detailLoading, setDetailLoading] = useState(false)
+  const [hoverEmail, setHoverEmail] = useState(null)      // email shown in hover preview
+  const [hoverY, setHoverY] = useState(0)
+  const [suggesting, setSuggesting] = useState(false)    // loading state for Claude
+  const [suggestions, setSuggestions] = useState(null)   // Claude's suggested deals
+  const [selectedSuggs, setSelectedSuggs] = useState({}) // which suggestions are checked
+  const hoverTimer = useRef(null)
 
   const svgRef = useRef(null)
   const worldRef = useRef(null)
@@ -363,18 +366,53 @@ ${recent.map(em => `<div style="font-size:7.5px;color:#4a5468;padding:2px 0;bord
     if (em._matches?.length) setActiveDeal(em._matches[0].dealId)
   }
 
-  // ── Open full detail modal ────────────────────────────────────────────────
-  async function openDetail(em) {
-    selectEmail(em)
-    setDetailEmail(em)
-    setDetailBody(null)
-    setDetailLoading(true)
+  // ── Hover preview handlers ────────────────────────────────────────────────
+  function onEmailHover(e, em) {
+    clearTimeout(hoverTimer.current)
+    const rect = e.currentTarget.getBoundingClientRect()
+    setHoverY(rect.top)
+    setHoverEmail(em)
+  }
+  function onEmailLeave() {
+    hoverTimer.current = setTimeout(() => setHoverEmail(null), 180)
+  }
+
+  // ── Claude: suggest deal categories ──────────────────────────────────────
+  async function suggestDeals() {
+    if (!emails.length) return
+    setSuggesting(true); setSuggestions(null)
     try {
-      const res = await fetch(`/api/email/${em.id}`)
+      const res = await fetch('/api/suggest-deals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emails }),
+      })
       const data = await res.json()
-      if (data.email) setDetailBody(data.email.body?.content || data.email.bodyPreview)
-    } catch { /* show bodyPreview as fallback */ }
-    finally { setDetailLoading(false) }
+      if (data.suggestions) {
+        setSuggestions({ items: data.suggestions, total: data.total })
+        // Pre-select all suggestions
+        const sel = {}
+        data.suggestions.forEach((s, i) => { sel[i] = true })
+        setSelectedSuggs(sel)
+      }
+    } finally {
+      setSuggesting(false)
+    }
+  }
+
+  function addSelectedSuggestions() {
+    const toAdd = suggestions.items
+      .filter((_, i) => selectedSuggs[i])
+      .map(s => ({
+        id: 'deal-' + Date.now() + '-' + Math.random().toString(36).slice(2),
+        name: s.name,
+        desc: s.description,
+        color: s.color,
+        keywords: s.keywords,
+      }))
+    setDeals(prev => [...prev.filter(d => d.id !== 'deal-1'), ...toAdd])
+    setSuggestions(null)
+    if (toAdd.length) setActiveDeal(toAdd[0].id)
   }
 
   // ══════════════════════════════════════════════════════════════════
@@ -460,7 +498,9 @@ ${recent.map(em => `<div style="font-size:7.5px;color:#4a5468;padding:2px 0;bord
               return (
                 <div
                   key={em.id}
-                  onClick={() => openDetail(em)}
+                  onClick={() => selectEmail(em)}
+                  onMouseEnter={e => onEmailHover(e, em)}
+                  onMouseLeave={onEmailLeave}
                   style={{
                     ...S.emailItem,
                     background: isSel ? '#141720' : 'transparent',
@@ -521,7 +561,16 @@ ${recent.map(em => `<div style="font-size:7.5px;color:#4a5468;padding:2px 0;bord
         <aside style={S.sidebar}>
           <div style={S.panelHdr}>
             Deals
-            <button onClick={() => { setEditDeal(null); setShowAddDeal(true) }} style={{ ...S.btn, fontSize: 8, padding: '2px 8px' }}>+ Add</button>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button
+                onClick={suggestDeals}
+                disabled={suggesting || !emails.length}
+                style={{ ...S.btn, fontSize: 8, padding: '2px 8px', color: suggesting ? '#4a5468' : '#9c6dff', borderColor: suggesting ? '#242838' : '#9c6dff44' }}
+              >
+                {suggesting ? '…' : '✦ Suggest'}
+              </button>
+              <button onClick={() => { setEditDeal(null); setShowAddDeal(true) }} style={{ ...S.btn, fontSize: 8, padding: '2px 8px' }}>+ Add</button>
+            </div>
           </div>
           <div style={{ overflowY: 'auto', flex: 1 }}>
             {deals.map(deal => {
@@ -564,67 +613,99 @@ ${recent.map(em => `<div style="font-size:7.5px;color:#4a5468;padding:2px 0;bord
       {/* ── Tooltip ── */}
       <div ref={tipRef} style={S.tooltip} />
 
-      {/* ── Email Detail Modal ── */}
-      {detailEmail && (
-        <div style={S.modalOverlay} onClick={e => e.target === e.currentTarget && setDetailEmail(null)}>
-          <div style={{ ...S.modal, width: 580, maxHeight: '82vh', display: 'flex', flexDirection: 'column', gap: 0 }}>
-            {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontFamily: 'Syne,sans-serif', fontSize: 15, fontWeight: 800, color: '#dde1ea', marginBottom: 5, lineHeight: 1.3 }}>
-                  {detailEmail.subject || '(no subject)'}
+      {/* ── Hover email preview ── */}
+      {hoverEmail && (
+        <div
+          onMouseEnter={() => clearTimeout(hoverTimer.current)}
+          onMouseLeave={onEmailLeave}
+          style={{
+            position: 'fixed',
+            left: 278,
+            top: Math.min(hoverY, window.innerHeight - 320),
+            width: 340,
+            background: '#141720',
+            border: '1px solid #242838',
+            borderRadius: 8,
+            padding: '13px 15px',
+            zIndex: 200,
+            boxShadow: '0 8px 32px rgba(0,0,0,.7)',
+            pointerEvents: 'auto',
+          }}
+        >
+          <div style={{ fontFamily: 'Syne,sans-serif', fontSize: 12, fontWeight: 700, color: '#dde1ea', marginBottom: 3, lineHeight: 1.35 }}>
+            {hoverEmail.subject || '(no subject)'}
+          </div>
+          <div style={{ fontSize: 8.5, color: '#4a5468', marginBottom: 10 }}>
+            <span style={{ color: '#7a8494' }}>{hoverEmail.from?.emailAddress?.name}</span>
+            {' · '}
+            <span>{new Date(hoverEmail.receivedDateTime).toLocaleDateString(undefined, { day:'numeric', month:'short', year:'numeric' })}</span>
+          </div>
+          <div style={{ fontSize: 9, color: '#7a8494', lineHeight: 1.7, marginBottom: 10 }}>
+            {hoverEmail.bodyPreview}
+          </div>
+          {hoverEmail._matches?.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, borderTop: '1px solid #1c2030', paddingTop: 8 }}>
+              {hoverEmail._matches.map(m => (
+                <div key={m.dealId + m.branch} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: m.dealColor, flexShrink: 0, display: 'inline-block' }} />
+                  <span style={{ fontSize: 8.5, fontFamily: 'Syne,sans-serif', fontWeight: 700, color: m.dealColor }}>{m.dealName}</span>
+                  <span style={{ fontSize: 8.5, color: '#2a3040' }}>›</span>
+                  <span style={{ fontSize: 8.5, color: '#4a5468' }}>{m.branch}</span>
                 </div>
-                <div style={{ fontSize: 9, color: '#4a5468' }}>
-                  <span style={{ color: '#7a8494' }}>{detailEmail.from?.emailAddress?.name}</span>
-                  {' '}·{' '}
-                  <span>{detailEmail.from?.emailAddress?.address}</span>
-                  {' '}·{' '}
-                  <span>{new Date(detailEmail.receivedDateTime).toLocaleString()}</span>
-                </div>
-              </div>
-              <button onClick={() => setDetailEmail(null)} style={{ ...S.btn, padding: '2px 9px', marginLeft: 12, flexShrink: 0 }}>✕</button>
+              ))}
             </div>
+          ) : (
+            <div style={{ fontSize: 8, color: '#2a3040', borderTop: '1px solid #1c2030', paddingTop: 8 }}>
+              Not matched to any deal
+            </div>
+          )}
+        </div>
+      )}
 
-            {/* Classification path */}
-            {detailEmail._matches?.length > 0 ? (
-              <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 5 }}>
-                <div style={{ fontSize: 8, color: '#4a5468', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 2 }}>Filed under</div>
-                {detailEmail._matches.map(m => (
-                  <div
-                    key={m.dealId + m.branch}
-                    onClick={() => { setActiveDeal(m.dealId); setDetailEmail(null) }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '6px 10px', background: m.dealColor + '14', border: `1px solid ${m.dealColor}33`, borderRadius: 6, cursor: 'pointer' }}
-                  >
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: m.dealColor, flexShrink: 0, display: 'inline-block' }} />
-                    <span style={{ fontFamily: 'Syne,sans-serif', fontSize: 10, fontWeight: 700, color: m.dealColor }}>{m.dealName}</span>
-                    <span style={{ color: '#2a3040', fontSize: 10 }}>›</span>
-                    <span style={{ fontSize: 9.5, color: '#7a8494' }}>{m.branch}</span>
-                    <span style={{ marginLeft: 'auto', fontSize: 8, color: '#4a5468' }}>View in tree →</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div style={{ marginBottom: 12, padding: '7px 10px', background: '#1a1e28', borderRadius: 6, fontSize: 8.5, color: '#4a5468' }}>
-                Not matched to any deal — add keywords to your deals to classify this email.
-              </div>
-            )}
-
-            {/* Body */}
-            <div style={{ borderTop: '1px solid #1c2030', paddingTop: 12, flex: 1, overflowY: 'auto' }}>
-              {detailLoading ? (
-                <div style={{ fontSize: 9, color: '#4a5468' }}>Loading…</div>
-              ) : (
+      {/* ── Suggest deals modal ── */}
+      {suggestions && (
+        <div style={S.modalOverlay} onClick={e => e.target === e.currentTarget && setSuggestions(null)}>
+          <div style={{ ...S.modal, width: 520, maxHeight: '85vh', display: 'flex', flexDirection: 'column', gap: 0 }}>
+            <div style={{ fontFamily: 'Syne,sans-serif', fontSize: 15, fontWeight: 800, color: '#dde1ea', marginBottom: 4 }}>
+              Suggested Deal Categories
+            </div>
+            <div style={{ fontSize: 8.5, color: '#4a5468', marginBottom: 16 }}>
+              Based on {suggestions.total} emails · Claude identified {suggestions.items.length} distinct deals. Select which to add.
+            </div>
+            <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+              {suggestions.items.map((s, i) => (
                 <div
-                  style={{ fontSize: 9.5, color: '#7a8494', lineHeight: 1.75, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
-                  dangerouslySetInnerHTML={
-                    detailBody?.includes('<')
-                      ? { __html: detailBody }
-                      : undefined
-                  }
+                  key={i}
+                  onClick={() => setSelectedSuggs(prev => ({ ...prev, [i]: !prev[i] }))}
+                  style={{ padding: '10px 12px', borderRadius: 7, border: `1px solid ${selectedSuggs[i] ? s.color + '55' : '#242838'}`, background: selectedSuggs[i] ? s.color + '0e' : '#0e1116', cursor: 'pointer' }}
                 >
-                  {!detailBody?.includes('<') ? (detailBody || detailEmail.bodyPreview) : undefined}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: s.color, flexShrink: 0, display: 'inline-block' }} />
+                    <span style={{ fontFamily: 'Syne,sans-serif', fontSize: 12, fontWeight: 700, color: s.color, flex: 1 }}>{s.name}</span>
+                    <span style={{ fontSize: 8.5, color: '#4a5468' }}>{s.count} emails · {Math.round(s.proportion * 100)}%</span>
+                    <span style={{ fontSize: 11, color: selectedSuggs[i] ? s.color : '#2a3040' }}>{selectedSuggs[i] ? '✓' : '○'}</span>
+                  </div>
+                  {/* Proportion bar */}
+                  <div style={{ height: 3, background: '#1a1e28', borderRadius: 2, marginBottom: 6, overflow: 'hidden' }}>
+                    <div style={{ width: `${Math.round(s.proportion * 100)}%`, height: '100%', background: s.color, borderRadius: 2 }} />
+                  </div>
+                  <div style={{ fontSize: 8, color: '#4a5468', marginBottom: 5 }}>{s.description}</div>
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    {s.keywords.map(kw => (
+                      <span key={kw} style={{ fontSize: 7.5, padding: '1px 6px', background: s.color + '1a', color: s.color + 'cc', borderRadius: 3 }}>{kw}</span>
+                    ))}
+                  </div>
                 </div>
-              )}
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', borderTop: '1px solid #1c2030', paddingTop: 12 }}>
+              <button style={S.btn} onClick={() => setSuggestions(null)}>Cancel</button>
+              <button
+                onClick={addSelectedSuggestions}
+                style={{ ...S.btn, background: '#9c6dff', color: '#0a0c10', borderColor: '#9c6dff' }}
+              >
+                Add {Object.values(selectedSuggs).filter(Boolean).length} Selected
+              </button>
             </div>
           </div>
         </div>
