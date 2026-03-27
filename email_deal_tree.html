@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DealFlow — Email Intelligence</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0a0c10;--surface:#0e1116;--surface2:#141720;--surface3:#1a1e28;
+  --border:#1c2030;--border2:#242838;
+  --text:#dde1ea;--muted:#4a5468;--dim:#7a8494;
+  --accent:#4fc3f7;--green:#00d98b;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:'IBM Plex Mono',monospace;height:100vh;overflow:hidden;display:flex;flex-direction:column;user-select:none}
+
+/* ── HEADER ── */
+header{display:flex;align-items:center;justify-content:space-between;padding:10px 20px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0;z-index:30}
+.logo{font-family:'Syne',sans-serif;font-weight:800;font-size:16px;color:var(--accent);letter-spacing:-.5px}
+.logo span{color:var(--text)}
+.hst{display:flex;gap:18px;font-size:9.5px;color:var(--muted)}
+.hst strong{color:var(--dim)}
+.sdot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:5px;animation:blink 2s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+.btn{background:var(--surface2);border:1px solid var(--border2);color:var(--dim);font-family:'IBM Plex Mono',monospace;font-size:9.5px;padding:4px 11px;border-radius:4px;cursor:pointer;transition:all .15s}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn.on{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+
+/* ── MAIN LAYOUT ── */
+.main{display:flex;flex:1;overflow:hidden}
+
+/* ── INBOX (left) ── */
+.inbox{width:280px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--border);background:var(--surface)}
+.phdr{padding:10px 13px 8px;border-bottom:1px solid var(--border);font-size:8.5px;font-weight:500;text-transform:uppercase;letter-spacing:2px;color:var(--muted);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.badge{background:var(--accent);color:var(--bg);font-size:8px;padding:1px 6px;border-radius:8px;font-weight:600}
+.ilist{overflow-y:auto;flex:1}
+.ilist::-webkit-scrollbar{width:2px}
+.ilist::-webkit-scrollbar-thumb{background:var(--border2)}
+.ei{padding:9px 12px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s;animation:sli .3s ease}
+@keyframes sli{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:translateX(0)}}
+.ei:hover{background:var(--surface2)}
+.ei.sel{background:var(--surface2);border-left:2px solid var(--accent);padding-left:10px}
+.ei.unrd .esndr::before{content:'';display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--accent);margin-right:5px;vertical-align:middle}
+.esndr{font-size:9.5px;font-weight:500;color:var(--text);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.esubj{font-size:8.5px;color:var(--dim);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.eprev{font-size:7.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.emeta{display:flex;justify-content:space-between;align-items:center;margin-top:3px}
+.etime{font-size:7.5px;color:var(--muted)}
+.etags{display:flex;gap:3px;flex-wrap:wrap}
+.etag{font-size:7px;padding:1px 5px;border-radius:3px;font-weight:500}
+@keyframes flash{0%{background:rgba(79,195,247,.15)}100%{background:transparent}}
+.nfl{animation:flash .5s ease}
+.dpane{display:none;flex-direction:column;padding:12px;border-top:1px solid var(--border);font-size:8.5px;line-height:1.65;color:var(--muted);max-height:165px;overflow-y:auto;flex-shrink:0}
+.dpane.vis{display:flex}
+.dfrom{font-size:9.5px;color:var(--text);margin-bottom:2px}
+.dsubj{font-size:10.5px;font-family:'Syne',sans-serif;color:var(--accent);margin-bottom:5px}
+
+/* ── CENTRE: canvas ── */
+.canvas-wrap{flex:1;position:relative;overflow:hidden;background:var(--bg)}
+.canvas-wrap svg{width:100%;height:100%;display:block}
+.canvas-wrap::before{
+  content:'';position:absolute;inset:0;
+  background-image:radial-gradient(circle,#1c2030 1px,transparent 1px);
+  background-size:28px 28px;opacity:.5;pointer-events:none;z-index:0;
+}
+#canvas{position:relative;z-index:1}
+
+.zoom-ctrl{position:absolute;bottom:14px;left:14px;display:flex;flex-direction:column;gap:5px;z-index:20}
+.zb{width:28px;height:28px;background:var(--surface2);border:1px solid var(--border2);color:var(--dim);border-radius:5px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.zb:hover{border-color:var(--accent);color:var(--accent)}
+.nav-hint{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);font-size:8px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);padding:4px 10px;border-radius:10px;z-index:20;pointer-events:none}
+
+/* ── RIGHT: deal sidebar ── */
+.deals-sidebar{width:210px;flex-shrink:0;display:flex;flex-direction:column;border-left:1px solid var(--border);background:var(--surface)}
+.deals-sidebar .phdr{font-size:8.5px}
+.deal-list{overflow-y:auto;flex:1}
+.deal-list::-webkit-scrollbar{width:2px}
+.deal-list::-webkit-scrollbar-thumb{background:var(--border2)}
+.dcard{padding:11px 12px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s;position:relative}
+.dcard:hover{background:var(--surface2)}
+.dcard.active{background:var(--surface2)}
+.dcard-accent{position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:0 2px 2px 0}
+.dcard-name{font-family:'Syne',sans-serif;font-size:11px;font-weight:700;margin-bottom:3px}
+.dcard-desc{font-size:7.5px;color:var(--muted);margin-bottom:6px;line-height:1.4}
+.dcard-stats{display:flex;gap:8px;flex-wrap:wrap}
+.dstat{font-size:7.5px;color:var(--dim);background:var(--surface3);padding:2px 6px;border-radius:3px}
+.dcard-branches{margin-top:7px;display:flex;flex-direction:column;gap:3px}
+.dbranch{font-size:7.5px;display:flex;justify-content:space-between;color:var(--muted);padding:2px 0}
+.dbranch span:last-child{color:var(--dim)}
+
+/* ── TOOLTIP ── */
+#tt{position:fixed;pointer-events:none;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:10px 13px;font-size:9px;color:var(--dim);max-width:240px;z-index:999;opacity:0;transition:opacity .12s;box-shadow:0 8px 30px rgba(0,0,0,.6)}
+#tt.vis{opacity:1}
+.ttt{font-family:'Syne',sans-serif;font-size:11.5px;color:var(--text);margin-bottom:2px;font-weight:700}
+.tts{color:var(--muted);font-size:8px;margin-bottom:6px}
+.ttr{display:flex;justify-content:space-between;gap:12px;margin-bottom:2px}
+.ttl{color:var(--muted)}.ttv{color:var(--dim);text-align:right;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ttdiv{border:none;border-top:1px solid var(--border2);margin:5px 0}
+.ttem{font-size:7.5px;color:var(--muted);padding:2px 0;border-bottom:1px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ttem:last-child{border:none}
+
+/* ── TOAST ── */
+.twrap{position:fixed;bottom:14px;right:224px;display:flex;flex-direction:column;gap:5px;z-index:100}
+.toast{background:var(--surface2);border:1px solid var(--border2);border-left:3px solid var(--accent);padding:7px 11px;border-radius:5px;font-size:8.5px;color:var(--muted);max-width:240px;animation:tin .2s ease}
+@keyframes tin{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:translateX(0)}}
+.toast strong{color:var(--text);display:block;margin-bottom:1px;font-size:9.5px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Deal<span>Flow</span></div>
+  <div class="hst">
+    <span><span class="sdot"></span>Live Sync</span>
+    <span>Inbox: <strong id="iCnt">0</strong></span>
+    <span>Active Deals: <strong id="dCnt">0</strong></span>
+    <span>Total Emails: <strong id="nCnt">0</strong></span>
+  </div>
+  <div style="display:flex;gap:6px">
+    <button class="btn on" id="simBtn" onclick="toggleSim()">⏸ Pause</button>
+    <button class="btn" onclick="fitView()">⊡ Fit</button>
+    <button class="btn" onclick="resetAll()">↺ Reset</button>
+  </div>
+</header>
+
+<div class="main">
+
+  <!-- LEFT: INBOX -->
+  <div class="inbox">
+    <div class="phdr">Outlook Inbox <span class="badge" id="ubadge">0</span></div>
+    <div class="ilist" id="ilist"></div>
+    <div class="dpane" id="dpane">
+      <div class="dfrom" id="dfrom"></div>
+      <div class="dsubj" id="dsubj"></div>
+      <div id="dbody"></div>
+    </div>
+  </div>
+
+  <!-- CENTRE: PANNABLE/ZOOMABLE TREE CANVAS -->
+  <div class="canvas-wrap" id="canvasWrap">
+    <svg id="canvas" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arr" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L6,3 z" fill="#2a3040"/>
+        </marker>
+      </defs>
+      <g id="world"></g>
+    </svg>
+    <div class="zoom-ctrl">
+      <button class="zb" onclick="zoom(1.2)">+</button>
+      <button class="zb" onclick="zoom(0.83)">−</button>
+    </div>
+    <div class="nav-hint">Drag to pan · Scroll to zoom · Drag nodes to rearrange</div>
+  </div>
+
+  <!-- RIGHT: DEAL SELECTOR -->
+  <div class="deals-sidebar">
+    <div class="phdr">Deals <span class="badge" id="dBadge" style="background:var(--surface3);color:var(--dim)">0</span></div>
+    <div class="deal-list" id="dealList"></div>
+  </div>
+
+</div>
+
+<div id="tt"><div class="ttt" id="ttT"></div><div class="tts" id="ttS"></div><hr class="ttdiv"><div id="ttB"></div></div>
+<div class="twrap" id="tw"></div>
+
+<script>
+// ─────────────────────────────────────────────────
+// DATA
+// ─────────────────────────────────────────────────
+const DEALS=[
+  {id:'HELIX', name:'Project Helix', color:'#4fc3f7', desc:'Series B SaaS acquisition — $45M'},
+  {id:'AURORA',name:'Aurora Merger', color:'#9c6dff', desc:'Cross-border merger — $120M'},
+  {id:'TITAN', name:'Titan Buyout',  color:'#00d98b', desc:'PE leveraged buyout — $78M'},
+  {id:'NOVA',  name:'Nova Raise',    color:'#ff6b6b', desc:'Seed round — $8M fintech'},
+];
+const SNDRS=[
+  {n:'Sarah Chen',    f:'Meridian VC'},
+  {n:'James Holbrook',f:'Blueprint Capital'},
+  {n:'Priya Nair',    f:'Vertex Partners'},
+  {n:'Tom Erikson',   f:'Coldwater PE'},
+  {n:'Maya Osei',     f:'Brightside Capital'},
+  {n:'Alex Romero',   f:'Nova Legal'},
+  {n:'Rachel Kim',    f:'Forum Financial'},
+  {n:'David Liang',   f:'Castlebridge M&A'},
+];
+const TMPLS=[
+  {deal:'HELIX', branch:'Due Diligence',     fi:0, sub:'FW: Helix — DD data room access',            body:'Shared data room credentials. Please review the technical architecture docs and financial statements before Thursday\'s call. Focus: ARR growth, churn cohorts, and IP ownership.'},
+  {deal:'HELIX', branch:'Term Sheet',        fi:1, sub:'Re: Helix — revised term sheet v3',           body:'Revised term sheet per board feedback. Liquidation preference adjusted to 1.5x non-participating. Option pool moved to pre-money. Please circulate to legal.'},
+  {deal:'HELIX', branch:'Financials',        fi:2, sub:'Helix Q3 financials — URGENT',               body:'Q3 ARR at $4.2M vs $3.1M prior quarter. COGS also expanded. Three line items need clarification before we update the model.'},
+  {deal:'HELIX', branch:'Legal & Compliance',fi:5, sub:'Helix SPA — outstanding CPs',                body:'Four outstanding CPs: IP assignment deeds, change of control consents, founder vesting schedules, and R&D tax credit reconciliation. All need resolution by month end.'},
+  {deal:'HELIX', branch:'Management',        fi:3, sub:'Meeting notes — Helix founder call',          body:'Founders aligned on earnout. CTO may exit post-close — flag for retention. Sales pipeline healthy with 3 enterprise pilots converting Q4.'},
+  {deal:'HELIX', branch:'Due Diligence',     fi:4, sub:'Helix tech DD — preliminary findings',        body:'Codebase well-structured, 78% test coverage, no critical CVEs. Concern: single-cloud AWS dependency, no DR plan. Recommend post-close infrastructure audit.'},
+  {deal:'AURORA',branch:'Regulatory',        fi:5, sub:'Aurora — ACCC filing timeline',              body:'ACCC informal clearance: 6–8 weeks from filing. Recommend filing 1 November to meet 31 January long-stop. Draft application ready for review.'},
+  {deal:'AURORA',branch:'Valuation',         fi:6, sub:'Aurora — updated DCF model',                 body:'EV range $112M–$131M, base case $121M. Key sensitivity: year-1 integration costs. Happy to walk through on Thursday.'},
+  {deal:'AURORA',branch:'Due Diligence',     fi:7, sub:'Aurora DD — customer concentration risk',    body:'Top 3 customers = 67% of revenue. Two have auto-renewals expiring within 12 months of close. Recommend NDA comfort letters.'},
+  {deal:'AURORA',branch:'Integration',       fi:1, sub:'Aurora — Day 1 readiness checklist',         body:'IT integration is critical path — 90 days for full ERP migration. HR must confirm org structure by close. Comms plan ready.'},
+  {deal:'AURORA',branch:'Board Approval',    fi:0, sub:'Aurora — board pack for 22 Oct',             body:'Board pack attached. Agenda: deal rationale, financials, regulatory update, risk register, vote on exclusivity. Two risk items escalated.'},
+  {deal:'TITAN', branch:'Financing',         fi:3, sub:'Titan LBO — debt commitment letter',         body:'NAB issued senior facility commitment letter ($52M). Standard conditions. Mezzanine tranche ($10M) with Macquarie expected by end of week.'},
+  {deal:'TITAN', branch:'Management',        fi:4, sub:'Titan — management incentive plan draft',    body:'Draft MIP: 15% pool, 3-year vest, EBITDA hurdles. CEO supportive, CFO has dilution concerns. Recommend alignment call before heads of agreement.'},
+  {deal:'TITAN', branch:'Due Diligence',     fi:5, sub:'Titan environmental & WHS DD — red flags',   body:'Environmental DD flagged legacy contamination at Melbourne facility. Solvent spill 2009. Remediation may be required. Recommending indemnity clause and escrow holdback.'},
+  {deal:'TITAN', branch:'Closing',           fi:6, sub:'Titan — completion mechanics',               body:'Locked box agreed. Effective date 30 September. Expected adjustments: WC peg $3.2M, debt-like items $1.1M. Completion accounts within 10 business days.'},
+  {deal:'TITAN', branch:'Legal & Compliance',fi:5, sub:'Titan SPA — R&W insurance update',           body:'R&W insurance quote: 3.1% premium ($52M policy = $1.6M). Underwriter queried WHS item. Resolve remediation before binding to avoid exclusion.'},
+  {deal:'NOVA',  branch:'Pitch & Deck',      fi:2, sub:'Nova — updated investor deck v5',            body:'Final deck: $1.2M ARR, 23% MoM growth, Gartner TAM. Hockey-stick projection removed as advised. Ready for distribution.'},
+  {deal:'NOVA',  branch:'Investor Relations',fi:0, sub:'Nova — follow-up from Sequoia meeting',      body:'Sequoia wants 2-week exclusivity for deeper DD before committing to lead. Interested in B2B pivot and unit economics. Next: send data room access.'},
+  {deal:'NOVA',  branch:'Term Sheet',        fi:1, sub:'Nova — term sheet from Horizon Ventures',    body:'Horizon: $8M at $32M pre-money cap. 1x non-participating LP, pro-rata rights, 1 board seat. Founders happy — recommend accepting with minor tweaks.'},
+  {deal:'NOVA',  branch:'Legal & Compliance',fi:5, sub:'Nova — SHA and subscription agreement',      body:'Main issues: drag-along threshold (75% vs 85%), information rights, ESOP carve-out from drag. Standard seed terms otherwise.'},
+  {deal:['HELIX','AURORA'],branch:'Due Diligence',     fi:7,sub:'Q4 DD overview — Helix & Aurora parallel',body:'Proposing shared work plan for legal and financial workstreams across both DD processes to reduce duplication. Assign owners by COB Friday.'},
+  {deal:['TITAN','NOVA'],  branch:'Legal & Compliance',fi:5,sub:'Shared legal resources — Titan & Nova',   body:'Suggesting same junior counsel for both Titan SPA and Nova SHA. Attached schedule — confirm if acceptable to both deal teams.'},
+  {deal:['AURORA','TITAN'],branch:'Financing',         fi:6,sub:'Capital markets update — Aurora & Titan', body:'RBA rate hold tightened credit spreads ~15bps. Positive for Titan debt facility and Aurora bridging finance. Recommend locking in rates before next meeting.'},
+];
+
+// ─────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────
+let emails=[], tree={}, selId=null, unrd=0, simOn=true, simTmr=null, eid=0;
+let shuffled=[], si=0;
+let activeDeal='HELIX';
+let nodePos={};
+let vpX=0, vpY=0, vpScale=1;
+let isPanning=false, panStart={x:0,y:0}, panOrigin={x:0,y:0};
+let dragging=null;
+
+// ─────────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────────
+function init(){
+  DEALS.forEach(d=>{
+    tree[d.id]={name:d.name,color:d.color,desc:d.desc,branches:{}};
+    nodePos[d.id]={};
+  });
+  setupCanvas();
+  renderDealList();
+  renderCanvas();
+  startSim();
+}
+
+// ─────────────────────────────────────────────────
+// SIMULATION
+// ─────────────────────────────────────────────────
+function startSim(){
+  if(!shuffled.length) shuffled=[...TMPLS].sort(()=>Math.random()-.5);
+  function nxt(){
+    if(!simOn) return;
+    if(si>=shuffled.length){si=0;shuffled.sort(()=>Math.random()-.5);}
+    addEmail(shuffled[si++]);
+    simTmr=setTimeout(nxt,1800+Math.random()*2600);
+  }
+  simTmr=setTimeout(nxt,600);
+}
+function toggleSim(){
+  simOn=!simOn;
+  const b=document.getElementById('simBtn');
+  if(simOn){b.textContent='⏸ Pause';b.classList.add('on');startSim();}
+  else{b.textContent='▶ Resume';b.classList.remove('on');clearTimeout(simTmr);}
+}
+function resetAll(){
+  clearTimeout(simTmr);simOn=false;
+  emails=[];si=0;shuffled=[];eid=0;unrd=0;selId=null;activeDeal='HELIX';
+  DEALS.forEach(d=>{tree[d.id]={name:d.name,color:d.color,desc:d.desc,branches:{}};nodePos[d.id]={};});
+  document.getElementById('ilist').innerHTML='';
+  document.getElementById('dpane').classList.remove('vis');
+  document.getElementById('ubadge').textContent='0';
+  vpX=0;vpY=0;vpScale=1;
+  updStats();renderDealList();renderCanvas();
+  const b=document.getElementById('simBtn');b.textContent='⏸ Pause';b.classList.add('on');
+  simOn=true;startSim();
+}
+
+// ─────────────────────────────────────────────────
+// ADD EMAIL
+// ─────────────────────────────────────────────────
+function addEmail(tpl){
+  const deals=Array.isArray(tpl.deal)?tpl.deal:[tpl.deal];
+  const s=SNDRS[tpl.fi];
+  const now=new Date();
+  const t=now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0');
+  const em={id:eid++,sender:s.n,firm:s.f,subject:tpl.sub,body:tpl.body,
+    preview:tpl.body.substring(0,65)+'…',time:t,deals,branch:tpl.branch,unread:true,
+    tags:deals.map(d=>({id:d,name:DEALS.find(x=>x.id===d)?.name||d,color:DEALS.find(x=>x.id===d)?.color||'#888'}))};
+  emails.unshift(em);unrd++;
+  deals.forEach(did=>{
+    if(!tree[did]) return;
+    if(!tree[did].branches[tpl.branch]) tree[did].branches[tpl.branch]=[];
+    tree[did].branches[tpl.branch].push(em.id);
+  });
+  renderEItem(em);
+  updStats();renderDealList();renderCanvas();
+  toast(em);
+  document.getElementById('ubadge').textContent=unrd;
+}
+
+// ─────────────────────────────────────────────────
+// INBOX
+// ─────────────────────────────────────────────────
+function renderEItem(em){
+  const list=document.getElementById('ilist');
+  const d=document.createElement('div');
+  d.className='ei unrd nfl';d.id='ei-'+em.id;
+  d.onclick=()=>selEmail(em.id);
+  const th=em.tags.map(t=>`<span class="etag" style="background:${t.color}22;color:${t.color};border:1px solid ${t.color}44">${t.name}</span>`).join('');
+  d.innerHTML=`<div class="esndr">${em.sender} <span style="color:var(--muted);font-weight:300">· ${em.firm}</span></div>
+<div class="esubj">${em.subject}</div><div class="eprev">${em.preview}</div>
+<div class="emeta"><span class="etime">${em.time}</span><div class="etags">${th}</div></div>`;
+  list.insertBefore(d,list.firstChild);
+}
+function selEmail(id){
+  if(selId!==null){const p=document.getElementById('ei-'+selId);if(p)p.classList.remove('sel');}
+  selId=id;
+  const el=document.getElementById('ei-'+id);if(el){el.classList.add('sel');el.classList.remove('unrd');}
+  const em=emails.find(e=>e.id===id);if(!em) return;
+  if(em.unread){em.unread=false;unrd=Math.max(0,unrd-1);document.getElementById('ubadge').textContent=unrd;}
+  document.getElementById('dfrom').textContent=`${em.sender} · ${em.firm}`;
+  document.getElementById('dsubj').textContent=em.subject;
+  document.getElementById('dbody').textContent=em.body;
+  document.getElementById('dpane').classList.add('vis');
+  if(em.deals.length) selectDeal(em.deals[0]);
+  else renderCanvas();
+}
+
+// ─────────────────────────────────────────────────
+// DEAL SIDEBAR
+// ─────────────────────────────────────────────────
+function renderDealList(){
+  const list=document.getElementById('dealList');
+  list.innerHTML='';
+  const active=DEALS.filter(d=>Object.keys(tree[d.id]?.branches||{}).length>0);
+  document.getElementById('dBadge').textContent=active.length;
+  if(!active.length){
+    list.innerHTML='<div style="padding:14px;font-size:8.5px;color:var(--muted)">No deals yet…</div>';
+    return;
+  }
+  active.forEach(d=>{
+    const dt=tree[d.id];
+    const totalE=Object.values(dt.branches).reduce((s,a)=>s+a.length,0);
+    const bNames=Object.keys(dt.branches);
+    const card=document.createElement('div');
+    card.className='dcard'+(activeDeal===d.id?' active':'');
+    card.onclick=()=>selectDeal(d.id);
+    let branchHtml=bNames.slice(0,4).map(b=>`<div class="dbranch"><span>${b}</span><span>${dt.branches[b].length}</span></div>`).join('');
+    if(bNames.length>4) branchHtml+=`<div class="dbranch"><span style="color:var(--muted)">+${bNames.length-4} more…</span><span></span></div>`;
+    card.innerHTML=`
+      <div class="dcard-accent" style="background:${d.color}"></div>
+      <div class="dcard-name" style="color:${d.color};padding-left:8px">${d.name}</div>
+      <div class="dcard-desc" style="padding-left:8px">${d.desc}</div>
+      <div class="dcard-stats" style="padding-left:8px">
+        <span class="dstat">${totalE} emails</span>
+        <span class="dstat">${bNames.length} branches</span>
+      </div>
+      <div class="dcard-branches" style="padding-left:8px">${branchHtml}</div>`;
+    list.appendChild(card);
+  });
+}
+function selectDeal(id){
+  activeDeal=id;
+  renderDealList();
+  fitView(true);
+}
+
+// ─────────────────────────────────────────────────
+// STATS
+// ─────────────────────────────────────────────────
+function updStats(){
+  document.getElementById('iCnt').textContent=emails.length;
+  const act=DEALS.filter(d=>Object.keys(tree[d.id]?.branches||{}).length>0);
+  document.getElementById('dCnt').textContent=act.length;
+  document.getElementById('nCnt').textContent=emails.length;
+}
+
+// ─────────────────────────────────────────────────
+// CANVAS PAN / ZOOM
+// ─────────────────────────────────────────────────
+function setupCanvas(){
+  const wrap=document.getElementById('canvasWrap');
+  const svg=document.getElementById('canvas');
+
+  wrap.addEventListener('mousedown',e=>{
+    if(e.target.closest('.zb')) return;
+    if(dragging) return;
+    isPanning=true;
+    panStart={x:e.clientX,y:e.clientY};
+    panOrigin={x:vpX,y:vpY};
+    svg.style.cursor='grabbing';
+  });
+  window.addEventListener('mousemove',e=>{
+    if(dragging){moveDrag(e);return;}
+    if(!isPanning) return;
+    vpX=panOrigin.x+(e.clientX-panStart.x);
+    vpY=panOrigin.y+(e.clientY-panStart.y);
+    applyTransform();
+  });
+  window.addEventListener('mouseup',e=>{
+    if(dragging){endDrag(e);return;}
+    isPanning=false;
+    svg.style.cursor='default';
+  });
+  wrap.addEventListener('wheel',e=>{
+    e.preventDefault();
+    const rect=wrap.getBoundingClientRect();
+    const mx=e.clientX-rect.left,my=e.clientY-rect.top;
+    const factor=e.deltaY<0?1.1:0.91;
+    const newScale=Math.min(3,Math.max(0.2,vpScale*factor));
+    vpX=mx-(mx-vpX)*(newScale/vpScale);
+    vpY=my-(my-vpY)*(newScale/vpScale);
+    vpScale=newScale;
+    applyTransform();
+  },{passive:false});
+}
+function applyTransform(){
+  document.getElementById('world').setAttribute('transform',`translate(${vpX},${vpY}) scale(${vpScale})`);
+}
+function zoom(f){
+  const wrap=document.getElementById('canvasWrap');
+  const cx=wrap.clientWidth/2,cy=wrap.clientHeight/2;
+  const ns=Math.min(3,Math.max(0.2,vpScale*f));
+  vpX=cx-(cx-vpX)*(ns/vpScale);
+  vpY=cy-(cy-vpY)*(ns/vpScale);
+  vpScale=ns;
+  applyTransform();
+}
+function fitView(reset){
+  if(reset){vpX=0;vpY=0;vpScale=1;}
+  const wrap=document.getElementById('canvasWrap');
+  const W=wrap.clientWidth,H=wrap.clientHeight;
+  const d=tree[activeDeal];
+  if(!d||!Object.keys(d.branches).length){vpX=0;vpY=0;vpScale=1;applyTransform();renderCanvas();return;}
+  const bCount=Object.keys(d.branches).length;
+  const treeW=Math.max(bCount*160,400);
+  const treeH=280;
+  vpScale=Math.min(W/treeW,H/treeH,1.2)*0.85;
+  vpX=W/2-treeW/2*vpScale;
+  vpY=H/2-treeH/2*vpScale-20;
+  applyTransform();
+  renderCanvas();
+}
+
+// ─────────────────────────────────────────────────
+// NODE DRAGGING
+// ─────────────────────────────────────────────────
+function startDrag(e,dealId,nodeKey){
+  e.stopPropagation();
+  const wrap=document.getElementById('canvasWrap');
+  const rect=wrap.getBoundingClientRect();
+  const wx=(e.clientX-rect.left-vpX)/vpScale;
+  const wy=(e.clientY-rect.top-vpY)/vpScale;
+  const pos=nodePos[dealId][nodeKey]||{x:0,y:0};
+  dragging={dealId,nodeKey,ox:wx-pos.x,oy:wy-pos.y};
+  isPanning=false;
+}
+function moveDrag(e){
+  if(!dragging) return;
+  const wrap=document.getElementById('canvasWrap');
+  const rect=wrap.getBoundingClientRect();
+  const wx=(e.clientX-rect.left-vpX)/vpScale;
+  const wy=(e.clientY-rect.top-vpY)/vpScale;
+  nodePos[dragging.dealId][dragging.nodeKey]={x:wx-dragging.ox,y:wy-dragging.oy};
+  renderCanvas();
+}
+function endDrag(){dragging=null;}
+
+// ─────────────────────────────────────────────────
+// SVG HELPERS
+// ─────────────────────────────────────────────────
+const NS='http://www.w3.org/2000/svg';
+function svgEl(tag,a,txt){
+  const e=document.createElementNS(NS,tag);
+  Object.entries(a).forEach(([k,v])=>e.setAttribute(k,v));
+  if(txt!==undefined) e.textContent=txt;
+  return e;
+}
+function makeRect(x,y,w,h,rx,fill,stroke,sw){
+  return svgEl('rect',{x:x-w/2,y:y-h/2,width:w,height:h,rx,fill,stroke,'stroke-width':sw});
+}
+function makeText(x,y,txt,font,size,weight,fill,anchor='middle'){
+  const t=svgEl('text',{x,y,'text-anchor':anchor,'dominant-baseline':'middle','font-family':font,'font-size':size,'font-weight':weight,fill});
+  t.textContent=txt;return t;
+}
+function makePath(x1,y1,x2,y2,stroke,sw,dash,opacity){
+  const my=(y1+y2)/2;
+  return svgEl('path',{d:`M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`,
+    fill:'none',stroke,'stroke-width':sw,'stroke-dasharray':dash,opacity});
+}
+
+// ─────────────────────────────────────────────────
+// RENDER CANVAS
+// ─────────────────────────────────────────────────
+function renderCanvas(){
+  const world=document.getElementById('world');
+  world.innerHTML='';
+  const d=tree[activeDeal];
+  if(!d){renderEmpty(world);return;}
+  const branches=Object.entries(d.branches);
+  if(!branches.length){renderEmpty(world);return;}
+
+  const selEm=selId!==null?emails.find(e=>e.id===selId):null;
+  const dHlit=selEm&&selEm.deals.includes(activeDeal);
+  const color=d.color;
+
+  const cx=400,cy=100;
+  const rk='root';
+  if(!nodePos[activeDeal][rk]) nodePos[activeDeal][rk]={x:cx,y:cy};
+  const rp=nodePos[activeDeal][rk];
+
+  const fanW=Math.max(branches.length*160,400);
+  const bY=cy+170;
+  branches.forEach(([bn],bi)=>{
+    const bk='b:'+bn;
+    if(!nodePos[activeDeal][bk]){
+      nodePos[activeDeal][bk]={x:branches.length===1?cx:cx-fanW/2+fanW/(branches.length-1)*bi,y:bY};
+    }
+  });
+
+  // Links
+  const linksG=svgEl('g',{});
+  branches.forEach(([bn,eids])=>{
+    const bk='b:'+bn;
+    const bp=nodePos[activeDeal][bk];
+    const bhlit=dHlit&&selEm.branch===bn;
+    linksG.appendChild(makePath(rp.x,rp.y+22,bp.x,bp.y-18,color,bhlit?2:1,bhlit?'none':'6 3',bhlit?.7:.25));
+  });
+  world.appendChild(linksG);
+
+  // Branch nodes
+  branches.forEach(([bn,eids])=>{
+    const bk='b:'+bn;
+    const bp=nodePos[activeDeal][bk];
+    const bhlit=dHlit&&selEm&&selEm.branch===bn;
+    const BW=128,BH=36;
+    const bg=svgEl('g',{style:'cursor:grab'});
+
+    const br=makeRect(bp.x,bp.y,BW,BH,8,bhlit?color+'44':color+'16',color,bhlit?1.5:.7);
+    if(bhlit) br.style.filter=`drop-shadow(0 0 9px ${color}55)`;
+    const bt=makeText(bp.x,bp.y-6,bn.length>15?bn.slice(0,14)+'…':bn,'Syne,sans-serif','10','600',bhlit?'#fff':color+'e8');
+    const bc=makeText(bp.x,bp.y+9,`${eids.length} msg`,'IBM Plex Mono,monospace','7.5','400',color+'88');
+
+    bg.append(br,bt,bc);
+    bg.addEventListener('mousedown',e=>{e.stopPropagation();startDrag(e,activeDeal,bk);});
+    bg.addEventListener('mouseenter',e=>ttBranch(e,activeDeal,bn,eids));
+    bg.addEventListener('mouseleave',hideT);
+    world.appendChild(bg);
+  });
+
+  // Root node (on top)
+  const totalE=Object.values(d.branches).reduce((s,a)=>s+a.length,0);
+  const RW=150,RH=44;
+  const rg=svgEl('g',{style:'cursor:grab'});
+  const rr=makeRect(rp.x,rp.y,RW,RH,12,dHlit?color:color+'2e',color,dHlit?2:1.8);
+  if(dHlit) rr.style.filter=`drop-shadow(0 0 14px ${color}66)`;
+  const rt=makeText(rp.x,rp.y-7,d.name,'Syne,sans-serif','12.5','800',dHlit?'#fff':color);
+  const rc=makeText(rp.x,rp.y+9,`${totalE} emails · ${branches.length} branches`,'IBM Plex Mono,monospace','7.5','400',dHlit?'rgba(255,255,255,.6)':color+'99');
+
+  rg.append(rr,rt,rc);
+  rg.addEventListener('mousedown',e=>{e.stopPropagation();startDrag(e,activeDeal,'root');});
+  rg.addEventListener('mouseenter',e=>ttDeal(e,activeDeal));
+  rg.addEventListener('mouseleave',hideT);
+  world.appendChild(rg);
+
+  applyTransform();
+}
+
+function renderEmpty(world){
+  const t=svgEl('text',{x:380,y:280,'text-anchor':'middle',fill:'#1c2535','font-family':'Syne,sans-serif','font-size':'14'});
+  t.textContent='Select a deal from the right panel';
+  world.appendChild(t);
+  applyTransform();
+}
+
+// ─────────────────────────────────────────────────
+// TOOLTIP
+// ─────────────────────────────────────────────────
+function posT(e){
+  const tt=document.getElementById('tt');
+  let x=e.clientX+16,y=e.clientY+16;
+  if(x+255>window.innerWidth) x=e.clientX-255;
+  if(y+260>window.innerHeight) y=e.clientY-260;
+  tt.style.left=x+'px';tt.style.top=y+'px';
+}
+function ttDeal(e,did){
+  const d=tree[did];const info=DEALS.find(x=>x.id===did);
+  const tot=Object.values(d.branches).reduce((s,a)=>s+a.length,0);
+  document.getElementById('ttT').textContent=d.name;
+  document.getElementById('ttS').textContent=info?.desc||'';
+  let b='';
+  Object.entries(d.branches).forEach(([bn,eids])=>{
+    b+=`<div class="ttr"><span class="ttl">${bn}</span><span class="ttv" style="color:${d.color}">${eids.length} email${eids.length!==1?'s':''}</span></div>`;
+  });
+  b+=`<hr class="ttdiv"><div class="ttr"><span class="ttl">Total</span><span class="ttv">${tot} emails</span></div>`;
+  document.getElementById('ttB').innerHTML=b;
+  posT(e);document.getElementById('tt').classList.add('vis');
+}
+function ttBranch(e,did,bn,eids){
+  const d=tree[did];
+  document.getElementById('ttT').textContent=bn;
+  document.getElementById('ttS').textContent=d.name+' · '+eids.length+' email'+(eids.length!==1?'s':'');
+  const recent=eids.slice(-5).reverse();
+  let b='';
+  recent.forEach(id=>{
+    const em=emails.find(e=>e.id===id);if(!em) return;
+    b+=`<div class="ttem"><span style="color:${d.color}88">${em.time}</span>  <span style="color:var(--dim)">${em.sender}</span>  <span>${em.subject.length>26?em.subject.slice(0,25)+'…':em.subject}</span></div>`;
+  });
+  document.getElementById('ttB').innerHTML=b||'<span style="color:var(--muted)">No emails yet</span>';
+  posT(e);document.getElementById('tt').classList.add('vis');
+}
+function hideT(){document.getElementById('tt').classList.remove('vis');}
+
+// ─────────────────────────────────────────────────
+// TOAST
+// ─────────────────────────────────────────────────
+function toast(em){
+  const w=document.getElementById('tw');
+  const d=document.createElement('div');d.className='toast';
+  const ns=em.tags.map(t=>`<span style="color:${t.color}">${t.name}</span>`).join(', ');
+  d.innerHTML=`<strong>${em.sender}</strong>${em.subject.slice(0,44)}… → ${ns} › ${em.branch}`;
+  w.appendChild(d);
+  setTimeout(()=>{d.style.cssText='opacity:0;transform:translateX(10px);transition:all .2s';setTimeout(()=>d.remove(),210);},3200);
+  while(w.children.length>3) w.removeChild(w.firstChild);
+}
+
+// ─────────────────────────────────────────────────
+// RESIZE + BOOT
+// ─────────────────────────────────────────────────
+window.addEventListener('resize',()=>renderCanvas());
+window.addEventListener('load',()=>setTimeout(init,80));
+</script>
+</body>
+</html>
