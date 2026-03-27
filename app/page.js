@@ -8,18 +8,6 @@ const DEFAULT_DEALS = [
   { id: 'deal-1', name: 'New Deal', color: '#4fc3f7', desc: 'Add a description', keywords: [] },
 ]
 
-// ─── Fake emails for demo/simulation mode ──────────────────────────────────
-const DEMO_EMAILS = [
-  { id:'d1', subject:'Project Helix — NDA Review & Comments', bodyPreview:'Please review our redlines on the NDA. Three key issues flagged regarding scope, carve-outs, and the 24-month tail period...', from:{emailAddress:{name:'Sarah Chen',address:'sarah@meridianvc.com'}}, receivedDateTime:new Date().toISOString(), isRead:false },
-  { id:'d2', subject:'Aurora Merger — ACCC Filing Timeline', bodyPreview:'ACCC informal clearance expected 6–8 weeks from filing. Recommend 1 November submission to meet the 31 January long-stop...', from:{emailAddress:{name:'James Holbrook',address:'james@blueprint.com'}}, receivedDateTime:new Date().toISOString(), isRead:false },
-  { id:'d3', subject:'Titan LBO — Debt Commitment Letter', bodyPreview:'NAB has issued the senior facility commitment letter for $52M. Standard conditions precedent. Mezzanine tranche expected by end of week...', from:{emailAddress:{name:'Tom Erikson',address:'tom@coldwaterpe.com'}}, receivedDateTime:new Date().toISOString(), isRead:false },
-  { id:'d4', subject:'Project Helix — Q3 Financials URGENT', bodyPreview:'Q3 ARR at $4.2M vs $3.1M prior quarter. Three line items need clarification before we update the model. Can we get on a call today?', from:{emailAddress:{name:'Priya Nair',address:'priya@vertex.com'}}, receivedDateTime:new Date().toISOString(), isRead:false },
-  { id:'d5', subject:'Nova Raise — Term Sheet from Horizon Ventures', bodyPreview:'Horizon Ventures proposes $8M at $32M pre-money. 1x non-participating liquidation preference, pro-rata rights, 1 board seat...', from:{emailAddress:{name:'Maya Osei',address:'maya@brightside.com'}}, receivedDateTime:new Date().toISOString(), isRead:false },
-  { id:'d6', subject:'Aurora Merger — Day 1 Readiness Checklist', bodyPreview:'IT integration is on the critical path. 90-day ERP migration timeline confirmed. HR must confirm org structure before completion...', from:{emailAddress:{name:'David Liang',address:'david@castlebridge.com'}}, receivedDateTime:new Date().toISOString(), isRead:false },
-  { id:'d7', subject:'Project Helix — SPA Outstanding CPs', bodyPreview:'Four outstanding conditions precedent: IP assignment deeds, change of control consents, founder vesting schedules, R&D tax credit reconciliation...', from:{emailAddress:{name:'Alex Romero',address:'alex@novalegal.com'}}, receivedDateTime:new Date().toISOString(), isRead:false },
-  { id:'d8', subject:'Titan — Environmental & WHS DD Red Flags', bodyPreview:'Environmental DD flagged legacy contamination at the Melbourne facility from a 2009 solvent spill. Remediation required. Recommend escrow holdback...', from:{emailAddress:{name:'Rachel Kim',address:'rachel@forum.com'}}, receivedDateTime:new Date().toISOString(), isRead:false },
-]
-
 // ─── SVG helpers ───────────────────────────────────────────────────────────
 const NS = 'http://www.w3.org/2000/svg'
 function svgEl(tag, attrs) {
@@ -42,7 +30,6 @@ function makeCurve(x1, y1, x2, y2, stroke, sw, dash, opacity) {
 // ─── Main app (inner, requires session) ────────────────────────────────────
 function DealFlowApp() {
   const { data: session, status } = useSession()
-  const isDemo = !session?.accessToken
 
   const [emails, setEmails] = useState([])
   const [deals, setDeals] = useState(() => {
@@ -54,6 +41,8 @@ function DealFlowApp() {
   const [activeDeal, setActiveDeal] = useState(null)
   const [selEmail, setSelEmail] = useState(null)
   const [unread, setUnread] = useState(0)
+  const [folders, setFolders] = useState([])
+  const [selectedFolder, setSelectedFolder] = useState('inbox')
   const [loading, setLoading] = useState(false)
   const [fetchErr, setFetchErr] = useState(null)
   const [showAddDeal, setShowAddDeal] = useState(false)
@@ -96,12 +85,20 @@ function DealFlowApp() {
     renderCanvas()
   }, [tree, activeDeal, selEmail]) // eslint-disable-line
 
-  // ── Fetch real emails (Outlook) ─────────────────────────────────────────
+  // ── Fetch folder list ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (!session?.accessToken) return
+    fetch('/api/folders')
+      .then(r => r.json())
+      .then(data => { if (data.folders) setFolders(data.folders) })
+  }, [session])
+
+  // ── Fetch emails from selected folder ──────────────────────────────────
   const fetchEmails = useCallback(async () => {
-    if (isDemo) { setEmails(DEMO_EMAILS); return }
+    if (!session?.accessToken) return
     setLoading(true); setFetchErr(null)
     try {
-      const res = await fetch('/api/emails')
+      const res = await fetch(`/api/emails?folderId=${encodeURIComponent(selectedFolder)}`)
       const data = await res.json()
       if (data.error) { setFetchErr(data.error); return }
       setEmails(data.emails)
@@ -111,15 +108,14 @@ function DealFlowApp() {
     } finally {
       setLoading(false)
     }
-  }, [isDemo])
+  }, [session, selectedFolder])
 
   useEffect(() => {
+    if (!session?.accessToken) return
     fetchEmails()
-    if (!isDemo) {
-      const t = setInterval(fetchEmails, 30000)
-      return () => clearInterval(t)
-    }
-  }, [fetchEmails, isDemo])
+    const t = setInterval(fetchEmails, 30000)
+    return () => clearInterval(t)
+  }, [fetchEmails])
 
   // ── Set first active deal once tree builds ──────────────────────────────
   useEffect(() => {
@@ -359,6 +355,18 @@ ${recent.map(em => `<div style="font-size:7.5px;color:#4a5468;padding:2px 0;bord
 
   if (status === 'loading') return <div style={S.loading}>Loading…</div>
 
+  if (!session) return (
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100vh', background:'#0a0c10', fontFamily:"'IBM Plex Mono',monospace", gap:20 }}>
+      <div style={{ fontFamily:'Syne,sans-serif', fontSize:28, fontWeight:800, color:'#4fc3f7' }}>Deal<span style={{color:'#dde1ea'}}>Flow</span></div>
+      <div style={{ fontSize:11, color:'#4a5468', maxWidth:320, textAlign:'center', lineHeight:1.7 }}>
+        Connect your Outlook inbox to automatically categorise emails by deal.
+      </div>
+      <button onClick={() => signIn('azure-ad')} style={{ marginTop:8, background:'#4fc3f7', color:'#0a0c10', border:'none', borderRadius:6, padding:'10px 24px', fontFamily:"'IBM Plex Mono',monospace", fontSize:11, fontWeight:600, cursor:'pointer' }}>
+        Sign in with Microsoft
+      </button>
+    </div>
+  )
+
   return (
     <div style={S.app}>
       {/* ── Header ── */}
@@ -366,7 +374,7 @@ ${recent.map(em => `<div style="font-size:7.5px;color:#4a5468;padding:2px 0;bord
         <div style={S.logo}>Deal<span style={{ color: '#dde1ea' }}>Flow</span></div>
         <div style={S.hStats}>
           <span><span style={S.dot} />
-            {isDemo ? 'Demo Mode' : `${session.user?.name || session.user?.email}`}
+            {session.user?.name || session.user?.email}
           </span>
           <span>Emails: <strong style={{ color: '#7a8494' }}>{emails.length}</strong></span>
           <span>Deals: <strong style={{ color: '#7a8494' }}>{deals.filter(d => Object.keys(tree[d.id]?.branches || {}).length > 0).length}</strong></span>
@@ -376,10 +384,7 @@ ${recent.map(em => `<div style="font-size:7.5px;color:#4a5468;padding:2px 0;bord
         <div style={{ display: 'flex', gap: 6 }}>
           <button style={S.btn} onClick={fitView}>⊡ Fit</button>
           <button style={S.btn} onClick={fetchEmails}>↺ Refresh</button>
-          {isDemo
-            ? <button style={{ ...S.btn, borderColor: '#4fc3f7', color: '#4fc3f7' }} onClick={() => signIn('azure-ad')}>Sign in with Microsoft</button>
-            : <button style={S.btn} onClick={() => signOut()}>Sign out</button>
-          }
+          <button style={S.btn} onClick={() => signOut()}>Sign out</button>
         </div>
       </header>
 
@@ -390,10 +395,23 @@ ${recent.map(em => `<div style="font-size:7.5px;color:#4a5468;padding:2px 0;bord
             Outlook Inbox
             <span style={{ ...S.badge, background: unread > 0 ? '#4fc3f7' : '#1a1e28', color: unread > 0 ? '#0a0c10' : '#4a5468' }}>{unread}</span>
           </div>
+          <div style={{ padding: '6px 12px', borderBottom: '1px solid #1c2030', flexShrink: 0 }}>
+            <select
+              value={selectedFolder}
+              onChange={e => setSelectedFolder(e.target.value)}
+              style={{ width: '100%', background: '#141720', border: '1px solid #242838', color: '#7a8494', fontFamily: "'IBM Plex Mono',monospace", fontSize: 9.5, padding: '4px 8px', borderRadius: 4, cursor: 'pointer', outline: 'none' }}
+            >
+              <option value="inbox">Inbox</option>
+              <option value="sentitems">Sent Items</option>
+              {folders.map(f => (
+                <option key={f.id} value={f.id}>{f.displayName} ({f.totalItemCount})</option>
+              ))}
+            </select>
+          </div>
           <div style={S.emailList}>
             {emails.length === 0 && (
               <div style={{ padding: 16, fontSize: 9, color: '#4a5468' }}>
-                {isDemo ? 'Loading demo emails…' : 'No emails found. Try refreshing.'}
+                No emails found. Try refreshing or selecting a different folder.
               </div>
             )}
             {emails.map(em => {
@@ -515,16 +533,6 @@ ${recent.map(em => `<div style="font-size:7.5px;color:#4a5468;padding:2px 0;bord
         />
       )}
 
-      {/* ── Demo banner ── */}
-      {isDemo && (
-        <div style={S.demoBanner}>
-          <strong>Demo mode</strong> — showing sample data.{' '}
-          <span style={{ color: '#4fc3f7', cursor: 'pointer', textDecoration: 'underline' }} onClick={() => signIn('azure-ad')}>
-            Sign in with Microsoft
-          </span>{' '}
-          to connect your real Outlook inbox.
-        </div>
-      )}
     </div>
   )
 }

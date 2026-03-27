@@ -1,22 +1,15 @@
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 
-export async function GET(request) {
+export async function GET() {
   const session = await getServerSession(authOptions)
 
   if (!session?.accessToken) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { searchParams } = new URL(request.url)
-  // folderId can be a Graph folder ID or a well-known name like "inbox", "sentitems"
-  const folderId = searchParams.get('folderId') || 'inbox'
-
   const res = await fetch(
-    `https://graph.microsoft.com/v1.0/me/mailFolders/${folderId}/messages` +
-    '?$top=80' +
-    '&$orderby=receivedDateTime desc' +
-    '&$select=id,subject,bodyPreview,from,receivedDateTime,conversationId,isRead',
+    'https://graph.microsoft.com/v1.0/me/mailFolders?$top=50&$select=id,displayName,totalItemCount,unreadItemCount',
     { headers: { Authorization: `Bearer ${session.accessToken}` } }
   )
 
@@ -26,5 +19,5 @@ export async function GET(request) {
   }
 
   const data = await res.json()
-  return Response.json({ emails: data.value || [] })
+  return Response.json({ folders: data.value || [] })
 }
